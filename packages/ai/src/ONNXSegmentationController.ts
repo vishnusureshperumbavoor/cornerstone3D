@@ -1469,7 +1469,47 @@ export default class ONNXSegmentationController {
           source: 'network',
         });
 
-        await cache.add(url);
+        const response = await fetch(url);
+        const reader = response.body.getReader();
+
+        const contentLength = +response.headers.get('Content-Length');
+        let receivedLength = 0;
+        const chunks = [];
+
+        // eslint-disable-next-line no-constant-condition
+        while (true) {
+          const { done, value } = await reader.read();
+
+          if (done) {
+            console.log('testrespone brocken');
+            break;
+          }
+
+          chunks.push(value);
+          receivedLength += value.length;
+
+          const progress = receivedLength / contentLength;
+          const isEncoderModel = name.includes('encoder');
+          const receivedMB = (receivedLength / (1024 * 1024)).toFixed(2);
+          const totalMB = (contentLength / (1024 * 1024)).toFixed(2);
+          this.log(
+            isEncoderModel ? Loggers.Encoder : Loggers.Decoder,
+            `downloading ${name} progress: ${receivedMB}MB/${totalMB}MB (${(
+              progress * 100
+            ).toFixed(2)}%)`
+          );
+        }
+
+        const completeData = new Uint8Array(receivedLength);
+        let position = 0;
+        for (const chunk of chunks) {
+          completeData.set(chunk, position);
+          position += chunk.length;
+        }
+
+        const blob = new Blob([completeData]);
+        const responseForCache = new Response(blob);
+        await cache.put(url, responseForCache);
         cachedResponse = await cache.match(url);
         this.log(Loggers.Log, `${name} (network)`);
       } else {
